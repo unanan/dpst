@@ -1,3 +1,7 @@
+# 这个深度映射网络需满足：
+# 1. 尺度不变性
+# 2. 同圆厚度不变性
+
 import math
 import torch
 import torch.nn as nn
@@ -5,7 +9,7 @@ import torch.nn.functional as F
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1):
+    def __init__(self, h, d_model=128, dropout=0.1):
         "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
@@ -61,36 +65,47 @@ class MultiHeadedAttention(nn.Module):
 
 
 class embednet(nn.Module):
-    def __init__(self,h=8, d_model=224): #,o_dim=16
+    def __init__(self,h=8, d_model=128): #,o_dim=16
         super(embednet, self).__init__()
-        self.attn = MultiHeadedAttention(h,d_model)
+        self.d_model = d_model
+        self.attn = MultiHeadedAttention(h,self.d_model)
         # self.lut = nn.Embedding(d_model,o_dim)
 
     def forward(self,x):
         # return self.lut(self.attn(x,x,x,None))
+        x = F.interpolate(x, size=(self.d_model, self.d_model), mode='bilinear')
         return self.attn(x,x,x,None)
 
 
 # Some test codes
 if __name__ == "__main__":
+    import numpy as np
+    import cv2
+    from PIL import Image
+
     from visdom import Visdom
     viz=Visdom()
     assert viz.check_connection()
 
 
-    model=embednet(d_model=32).cuda()
-    # model=model.attn
+    model=embednet().cuda()
+    print(torch.load("test.pth"))
+    model.load_state_dict(torch.load("test.pth"))  # ~800kB
     model.eval()
 
-    inputs=torch.rand(2,96,32,32).cuda()
-    outputs=model(inputs)
+    # inputs=torch.rand(2,3,256,256).cuda()
+    image=np.zeros((512, 512, 3), np.uint8)
+    cv2.circle(image, (100, 120), 30, (1, 1, 1), 2)
+
+    inputs = torch.from_numpy(cv2.cvtColor(image,cv2.COLOR_BGR2RGB))
+    outputs=model(inputs.unsqueeze(0))
     print(outputs.shape)
     # torch.save(model.state_dict(),"test.pth") # ~800kB
 
-    # viz.surf(X=inputs[0][0],opts=dict(colormap='Hot'))
-    # viz.surf(X=inputs[0][1],opts=dict(colormap='Hot'))
-    # viz.surf(X=inputs[0][2],opts=dict(colormap='Hot'))
-    # viz.surf(X=outputs[0],opts=dict(colormap='Hot'))
+    viz.surf(X=inputs[0][0],opts=dict(colormap='Hot'))
+    viz.surf(X=inputs[0][1],opts=dict(colormap='Hot'))
+    viz.surf(X=inputs[0][2],opts=dict(colormap='Hot'))
+    viz.surf(X=outputs[0],opts=dict(colormap='Hot'))
 
 
     # print(inputs)

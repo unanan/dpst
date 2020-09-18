@@ -39,7 +39,7 @@ class topdown_lateral_module(nn.Module):
         lat = self.conv_lateral(lateral_blob)
         # Top-down 2x upsampling
         # td = F.upsample(top_blob, size=lat.size()[2:], mode='bilinear')
-        td = F.upsample(top_blob, scale_factor=2, mode='nearest')
+        td = F.interpolate(top_blob, scale_factor=2, mode='nearest')
         # Sum lateral and top-down
         return lat + td
 
@@ -335,7 +335,16 @@ class embedFPN(nn.Module):
         #         BidirectionalLSTM(1024, 256, 256),
         #         BidirectionalLSTM(256, 256, 256))
 
-        #
+        self.mask_conv = nn.Sequential(
+            nn.Conv2d(96*3, 1, 1)
+        )
+
+    # #Refer to: https://github.com/Hanqer/deep-hough-transform/blob/master/model/network.py
+    # def upsample_cat(self, p1, p2, p3):
+    #     p1 = F.interpolate(p1, size=(128,128), mode='bilinear')
+    #     p2 = F.interpolate(p2, size=(128,128), mode='bilinear')
+    #     p3 = F.interpolate(p3, size=(128,128), mode='bilinear')
+    #     return torch.cat([p1, p2, p3], dim=1)
 
 
     def forward(self,x):
@@ -345,12 +354,10 @@ class embedFPN(nn.Module):
         p2 = self.topdown32(p3,self.attn2(c2))
         p1 = self.topdown21(p2,self.attn1(c1))
 
-        # s3 = self.seqencode(p3.view(p3.shape[0],p3.shape[1],p3.shape[-2]*p3.shape[-1]))
-        # s2 = self.seqencode(p2.view(p2.shape[0],p2.shape[1],p2.shape[-2]*p2.shape[-1]))
-        # s1 = self.seqencode(p1.view(p1.shape[0],p1.shape[1],p1.shape[-2]*p1.shape[-1]))
+        # pcat = self.upsample_cat(p1,p2,p3)
+        pcat = torch.cat([p1, p2, p3], dim=1)
 
-        print(p3.shape)
-        return s3
+        return self.mask_conv(pcat)
         # p5 = self.p5conv(c5)
         # P4 = nn.Add(name="fpn_p4add")([
         #     nn.UpSampling2D(size=(2, 2), name="fpn_p5upsampled")(P5),
@@ -380,9 +387,7 @@ if __name__ =="__main__":
     net = embedFPN(backbone=MobileNetV3_Small())
 
     x = torch.randn(2, 3, 512, 512)
-    p3 = net(x)  #,p2,p1
-    print(p3.shape) #2x96x32x32
-    # print(p2.shape) #2x96x64x64
-    # print(p1.shape) #2x96x128x128
+    mask = net(x)
+    print(mask.shape) #2x1x128x128
 
     torch.save(net.state_dict(), "test.pth")  # ~5.4MB

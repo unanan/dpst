@@ -2,7 +2,7 @@ import time
 import logging
 import trainer
 from dataset import *
-
+import torch.nn as nn
 
 class EmbedTrainer(trainer.Trainer):
     def __init__(self,**kwargs):
@@ -16,10 +16,11 @@ class EmbedTrainer(trainer.Trainer):
         self.args=trainer.ParseArgs(stage="stage1",**kwargs)
 
         # Load Dataset
-        self.trainbatches = BinaryDataset(img_folder = self.args.args.train_folder, img_size = self.args.args.dmodel)
+        self.trainbatches = BinaryDataset(img_size = self.args.args.dmodel)
 
         # Init the trainer (TODO: call the dataloader as batches in the function)
         super(EmbedTrainer,self).__init__(self.args,d_model=self.args.args.dmodel)
+
 
 
     def train(self):
@@ -34,18 +35,24 @@ class EmbedTrainer(trainer.Trainer):
             for batch in self.trainbatches:
                 start = time.time()
                 iter += 1
-                img_tensor,hotnum = batch
+                img_tensors,hotnum = batch
+                imgtensor,posimgtensor,negimgtensor = img_tensors
                 self.optimizer.zero_grad()
 
                 # Forwarding
-                preds = self.model(img_tensor)
+                imgmasks = self.model(imgtensor)
+                posimgmasks = self.model(posimgtensor)
+                negimgmasks = self.model(negimgtensor)
 
                 # Calculate Loss
-                loss = self.criterion(img_tensor, preds,hotnum)
+                loss = self.criterion(imgmasks, posimgmasks, negimgmasks, hotnum)
+                # print("DEBUG over")
                 loss.backward()
                 self.optimizer.step()
                 self.losses.update(loss.item(), self.batch_size)
 
                 if iter % self.show_interval == 0:
-                    logging.info(
+                    print(
                         f"Training [{epoch}/{self.max_epoch}][{iter}] Loss:{self.losses.avg} Time:{time.time() - start:.1f}s")
+                    self.save_pth(f"test.pth")
+        self.save_pth(f"stage1_{self.losses.avg:.2f}.pth")

@@ -4,18 +4,15 @@ import json
 import argparse
 import logging
 import numpy as np
-import plotext.plot as plx
+# import plotext.plot as plx
 
 import torch
+import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 
-from data.TestPaper_dataset.testpaperdataset import TestPaper
-from dataloader import get_loader
 import model
 import loss
-from utils.avgmeter import AverageMeter
-
 
 class ParseArgs:
     def __init__(self,stage=None,config_file=None,**kwargs):
@@ -35,9 +32,11 @@ class ParseArgs:
         parser.add_argument('--device', default="0,1", type=str, help='device id(s) for data-parallel during training.')
         parser.add_argument('--batch_size', default=6, type=int, help='batch size for training.')
         parser.add_argument('--num_workers', default=4, type=int, help='number of workers for training.')
-        parser.add_argument('--max_epoch', default=200, type=int, help='number of epoches for training.')
-        parser.add_argument('--base_lr', default=0.001, type=float, help='learning rate at the beginning.')
-        parser.add_argument('--show_interval', default=50, type=int, help='steps(iters) between two training logging output.')
+        parser.add_argument('--max_epoch', default=2000000, type=int, help='number of epoches for training.')
+        parser.add_argument('--base_lr', default=0.0001, type=float, help='learning rate at the beginning.')
+        parser.add_argument('--momentum', default=0.9, type=float, help='learning rate at the beginning.')
+        parser.add_argument('--weight_decay', default=5e-4, type=float, help='learning rate at the beginning.')
+        parser.add_argument('--show_interval', default=100, type=int, help='steps(iters) between two training logging output.')
         # Validating
         parser.add_argument('--val_batch_size', default=6, type=int, help='batch size for validating')
         parser.add_argument('--val_interval', default=200, type=int, help='steps(iters) between two validating phase.')
@@ -47,6 +46,7 @@ class ParseArgs:
                 parser.add_argument('--net', default="embednet", type=str, help='embednet | attn')
                 parser.add_argument('--dmodel', default=224, type=int, help='output dimension')
                 parser.add_argument('--criterion', default="KLDivSparseLoss", type=str, help='KLDivLoss | KLDivSparseLoss')
+                parser.add_argument('--resume', default=None, type=str, help='weights path for resuming the training')
 
                 # Datasets
                 parser.add_argument('--train_folder', default=None, type=str, help='binary images for training')
@@ -57,6 +57,7 @@ class ParseArgs:
             elif stage == "stage2":
                 parser.add_argument('--backbone', default="MobileNetV3_Small", type=str, help='resnet18 | resnet50 | resnet101 | resnext50 | vgg16 | MobileNetV3_Small | res2net50')
                 parser.add_argument('--criterion', default="", type=str, help='')
+                parser.add_argument('--resume', default=None, type=str, help='weights path for resuming the training')
 
                 # Datasets
                 parser.add_argument('--train_gtfile', default="test/gt.txt", type=str, help='')
@@ -72,11 +73,13 @@ class ParseArgs:
             # parser.add_argument_group(configs)
             raise NotImplementedError("Not implemented method: to set parameters by config file.")
 
-
-        #TODO
-        parser.add_argument_group(**kwargs)
-
         self.args = parser.parse_args()
+
+        # TODO
+        # for k, v in kwargs.items():
+        #     item = getattr(self.args, k)
+        #     item = v
+
 
 
 
@@ -106,6 +109,8 @@ class Trainer:
         # Init train stage
         self.__init_stage(self.args,**modelargs)
 
+
+
     def __init_stage(self,args,**modelargs):
         # Create Dataloader
         if hasattr(self,"trainbatches"):
@@ -117,14 +122,19 @@ class Trainer:
         self.model = getattr(model,args.net)(**modelargs)
         if args.resume:
             self.model.load_state_dict(torch.load(args.resume))
+        else:
+            # self.model.apply(self.__init_weights)
+            pass #TODO
+        # self.model=self.model.to(self.device)
         self.model = torch.nn.DataParallel(self.model).to(self.device)
 
-        # Optimizer
-        self.optimizer = optim.Adam(self.model.parameters())  #TODO
+        # Optimizer #TODO
+        self.optimizer = optim.Adam(self.model.parameters(),lr=self.args.base_lr,weight_decay=self.args.weight_decay)
+        # self.optimizer = optim.SGD(self.model.parameters(),lr=self.args.base_lr,momentum=self.args.momentum,weight_decay=self.args.weight_decay)
 
         # Loss
         self.criterion = getattr(loss,args.criterion)()
-        self.losses = AverageMeter()  # print on log
+        self.losses = loss.AverageMeter()  # print on log
 
         self.show_interval = args.show_interval
         self.max_epoch = args.max_epoch
@@ -140,6 +150,8 @@ class Trainer:
     def print_args(self):
         logging.info(self.args)
 
+    def save_pth(self, name = "weights_fin.pth"):
+        torch.save(self.model.state_dict(), name)
 
     def train(self):
         raise NotImplementedError()
